@@ -75,6 +75,9 @@ def group_points_3DV(points, opt):
     # inputs_level1 = inputs_level1.view(-1,opt.temperal_num,opt.INPUT_FEATURE_NUM,opt.sample_num_level1,opt.knn_K)
     # inputs_level1_center = inputs_level1_center.view(-1,opt.temperal_num,3,opt.sample_num_level1,1)
 
+    inputs_level1 = inputs_level1.type(torch.FloatTensor)
+    inputs_level1_center = inputs_level1_center.type(torch.FloatTensor)
+
     return inputs_level1, inputs_level1_center
     #inputs_level1: B*INPUT_FEATURE_NUM*sample_num_level1*knn_K, inputs_level1_center: B*3*sample_num_level1*1   
 def group_points_2(points, sample_num_level1, sample_num_level2, knn_K, ball_radius):

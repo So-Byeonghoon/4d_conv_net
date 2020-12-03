@@ -12,7 +12,7 @@ import numpy as np
 
 from model import PointNet_Plus#,Attension_Point,TVLAD
 from dataset import NTU_RGBD
-from utils import group_points,group_points_pro
+from utils import group_points, group_points_3DV
 
 from PIL import Image
 from torch.utils.data import Dataset

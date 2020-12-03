@@ -86,7 +86,8 @@ class NTU_RGBD(Dataset):
 		vid_name = self.id_to_vidName[vid_id]
 		S_idx = vid_name[1:4]
 		#print(vid_name)
-		v_name = vid_name[:-9]
+		# v_name = vid_name[:-9]
+		v_name = vid_name[:-4]
 
 		# 3 seg appearance data
 		points_2048_f = np.zeros(shape = [3, self.SAMPLE_NUM, 3], dtype=np.float32)
@@ -96,7 +97,7 @@ class NTU_RGBD(Dataset):
 			#appearance point data path
 			path_v = 'NTU_3seg_depthpoint/Seg'+str(s+1)+'/NTU_v'+str(v)
 			v_name1 = v_name+'_v'+str(v)+'.npy'
-			path_points_frame = os.path.join(path_v,v_name1)
+			path_points_frame = os.path.join(self.depth_path, path_v, v_name1)
 			points_2048 = np.load(path_points_frame) # load data
 
 			## normalization for appearance point data
@@ -111,12 +112,12 @@ class NTU_RGBD(Dataset):
 		## 3DV motion point data 
 		path_cloud_npy = os.path.join(self.root_path,self.id_to_vidName[vid_id])
 		# matlab data(.mat) OR python data(.npy)
-		XYZ_C = sio.loadmat(path_cloud_npy)
+		# XYZ_C = sio.loadmat(path_cloud_npy)
 		#print(self.id_to_vidName[vid_id])
-		points_c = XYZ_C['pc'].astype(np.float32)
+		# points_c = XYZ_C['pc'].astype(np.float32)
 		#print(path_cloud_npy)
-		#points_c= np.load(path_cloud_npy)
-		points_c = np.expand_dims(points_c, axis=0)
+		points_c = np.load(path_cloud_npy)
+		# points_c = np.expand_dims(points_c, axis=0)
 		#print(points_c.shape, points_2048_f.shape)
 		label = self.id_to_action[vid_id]
 

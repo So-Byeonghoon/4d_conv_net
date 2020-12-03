@@ -24,7 +24,7 @@ SAMPLE_NUM = 2048
 sample_num_level1 = 512
 sample_num_level2 = 128
 K = 60  # max frame limit for temporal rank
-save_path = '/3DV_pointdata/NTU_voxelsize35_split5'
+save_path = '../data/3DV_pointdata/NTU_voxelsize35_split5'
 
 try:
 	os.makedirs(save_path)
@@ -32,7 +32,7 @@ except OSError:
 	pass
 
 def main():
-	data_path = '/ntu120dataset'
+	data_path = '../data/'
 	sub_Files = os.listdir(data_path)
 	sub_Files.sort()
 

@@ -16,9 +16,11 @@ But to save storage space, only M frames in each segment are sampled to convert 
 
 
 
-save_path1 = '/NTU_3seg_depthpoint/'
+# save_path1 = '/NTU_3seg_depthpoint/'
+save_path1 = '../data/NTU_3seg_depthpoint/'
 
-root_path = 'ntu120dataset/'
+# root_path = 'ntu120dataset/'
+root_path = '../data/'
 
 seg_num=3 # 
 M = 5 #
