@@ -17,7 +17,6 @@ vlad_dim_out = 128*8
 class PointNet_Plus(nn.Module):
     def __init__(self,opt,num_clusters=8,gost=1,dim=128,normalize_input=True):
         super(PointNet_Plus, self).__init__()
-        self.temperal_num = opt.temperal_num
         self.knn_K = opt.knn_K
         self.ball_radius2 = opt.ball_radius2
         self.sample_num_level1 = opt.sample_num_level1
@@ -36,9 +35,9 @@ class PointNet_Plus(nn.Module):
         self.dim_out = 4096
 
         if self.pooling == 'concatenation':
-        	self.dim_out = 1024*4
+            self.dim_out = 1024*4
         # if self.pooling == 'bilinear':
-        # 	self.dim_out = 4096
+        #     self.dim_out = 4096
 
         self.net3DV_1 = nn.Sequential(
             # B*INPUT_FEATURE_NUM*sample_num_level1*knn_K
@@ -171,7 +170,7 @@ class PointNet_Plus(nn.Module):
         ###----motion stream--------
         B,d,N,k = xt.shape
         #xt =xt.view(-1,d,N,k)
-        xt = self.net3DV_1(xt)  
+        xt = self.net3DV_1(xt)
         xt = torch.cat((yt, xt),1).squeeze(-1)
         # B*(4+128)*sample_num_level1
         self.ball_radius2 = self.ball_radius2 + torch.randn(1)/120.0
@@ -184,7 +183,7 @@ class PointNet_Plus(nn.Module):
         xt = torch.cat((inputs_level2_center, xt),1)
         # # B*259*sample_num_level2*1
         xt = self.net3DV_3(xt).squeeze(-1).squeeze(-1)
-       
+
 
         ###----apearance streams--------
         '''
@@ -207,7 +206,7 @@ class PointNet_Plus(nn.Module):
         xs = xs.view(B,-1)
         x = torch.cat((xt,xs),-1)
 
-        
+
         #print(x.shape)
         # if self.pooling == 'bilinear':
         #     x1 = self.dim_drop1(x1)
