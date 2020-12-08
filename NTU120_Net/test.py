@@ -13,7 +13,7 @@ import numpy as np
 
 from model import PointNet_Plus#,Attension_Point,TVLAD
 from dataset import NTU_RGBD
-from utils import group_points,group_points_pro
+from utils import group_points, group_points_3DV
 
 from PIL import Image
 from torch.utils.data import Dataset
@@ -27,7 +27,7 @@ def main(args=None):
 	parser.add_argument('--batchSize', type=int, default=36, help='input batch size')
 	parser.add_argument('--nepoch', type=int, default=80, help='number of epochs to train for')
 	parser.add_argument('--INPUT_FEATURE_NUM', type=int, default = 8,  help='number of input point features')
-	parser.add_argument('--temperal_num', type=int, default = 3,  help='number of input point features')
+	# parser.add_argument('--temperal_num', type=int, default = 3,  help='number of input point features')
 	parser.add_argument('--pooling', type=str, default='concatenation', help='how to aggregate temporal split features: vlad | concatenation | bilinear')
 	parser.add_argument('--dataset', type=str, default='ntu60', help='how to aggregate temporal split features: ntu120 | ntu60')
 
@@ -92,7 +92,9 @@ def main(args=None):
 
 	netR = PointNet_Plus(opt)
 
-	netR.load_state_dict(torch.load("/results_ntu120/NTU60_v40_cv_MultiStream/pointnet_para_45.pth"))
+	#netR.load_state_dict(torch.load("/results_ntu120/NTU60_v40_cv_MultiStream/pointnet_para_45.pth"))
+	epoch = opt.nepoch - 1
+	netR.load_state_dict(torch.load(f"{opt.save_root_dir}/pointnet_para_{epoch}.pth"))
 
 	netR = torch.nn.DataParallel(netR).cuda()
 	netR.cuda()
@@ -118,7 +120,7 @@ def main(args=None):
 		#print(label,'label')
 		# points: B*2048*4; target: B*1
 		opt.ball_radius = opt.ball_radius + random.uniform(-0.02,0.02)
-		xt, yt = group_points_pro(points_xyzc, opt)
+		xt, yt = group_points_3DV(points_xyzc, opt)
 		xs1, ys1 = group_points(points_1xyz, opt)
 		xs2, ys2 = group_points(points2_xyz, opt)
 		xs3, ys3 = group_points(points3_xyz, opt)
@@ -142,7 +144,8 @@ def main(args=None):
 				pre_i60 = predicted60[j].cpu().numpy()
 				conf_mat60[cate_i, pre_i60] += 1.0
 
-	print('NTU120:{:.2%} NTU60:{:.2%}===Average loss:{:.6%}'.format(conf_mat.trace() / conf_mat.sum(),conf_mat60.trace() / conf_mat60.sum(),loss_sigma/(i+1)/2))
+	#print('NTU120:{:.2%} NTU60:{:.2%}===Average loss:{:.6%}'.format(conf_mat.trace() / conf_mat.sum(),conf_mat60.trace() / conf_mat60.sum(),loss_sigma/(i+1)/2))
+	print('NTU120:{:.2%} ===Average loss:{:.6%}'.format(conf_mat.trace() / conf_mat.sum(),loss_sigma/(i+1)/2))
 	logging.info('{} --epoch{} set Accuracy:{:.2%}===Average loss:{}'.format('Valid', epoch, conf_mat.trace() / conf_mat.sum(), loss_sigma/(i+1)))
 
 		#torch.save(netR.module.state_dict(), '%s/pointnet_para_%d.pth' % (opt.save_root_dir, epoch))
