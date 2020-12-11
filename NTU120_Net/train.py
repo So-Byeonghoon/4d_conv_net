@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import torch
 import os
+import sys
 import tqdm
 import shutil
 import collections
@@ -10,8 +11,8 @@ import time
 #import gpu_utils as g
 import numpy as np
 
-from model import PointNet_Plus#,Attension_Point,TVLAD
-from dataset import NTU_RGBD
+from model import PointNet_Plus, DynamicVoxel3DConvNet
+from dataset import NTU_RGBD, sparse_tensor_collation_fn
 from utils import group_points, group_points_3DV
 
 from PIL import Image
@@ -37,8 +38,11 @@ def main(args=None):
     parser.add_argument('--root_path', type=str, default='/data/data3/wangyancheng/pointcloudData/NTU_voxelz40_feature_2048',  help='preprocess folder')
     parser.add_argument('--depth_path', type=str, default='/data/data3/wangyancheng/ntu120dataset/',  help='raw_depth_png')
     parser.add_argument('--save_root_dir', type=str, default='results_ntu120/NTU60_v40_cv_notransform_MultiStream',  help='output folder')
-    parser.add_argument('--model', type=str, default = '',  help='model name for training resume')
+    parser.add_argument('--model', type=str, default = 'PointNet++',  help='model name for training resume: PointNet++ | 3DConv_base')
     parser.add_argument('--optimizer', type=str, default = '',  help='optimizer name for training resume')
+
+    parser.add_argument('--skip-appearance', action='store_true', help='If true, skip appearance stream and use only motion stream')
+    parser.add_argument('--cross-subject', action='store_true', help='If true, cross-subject split for NTU120 data; If flase, cross-view split')
 
     parser.add_argument('--ngpu', type=int, default=1, help='# GPUs')
     parser.add_argument('--main_gpu', type=int, default=0, help='main GPU id') # CUDA_VISIBLE_DEVICES=0 python train.py
@@ -56,6 +60,10 @@ def main(args=None):
     parser.add_argument('--ball_radius', type=float, default=0.16, help='square of radius for ball query in level 1')#0.025 -> 0.05 for detph
     parser.add_argument('--ball_radius2', type=float, default=0.25, help='square of radius for ball query in level 2')# 0.08 -> 0.01 for depth
 
+    parser.add_argument('--voxel_size', type=int, default=35,  help='Voxel size')
+
+    parser.add_argument('--verbose', action='store_true', help='')
+    parser.add_argument('--toy', action='store_true', help='If true, stop after the first iteration')
 
     opt = parser.parse_args()
     print (opt)
@@ -71,30 +79,50 @@ def main(args=None):
     except OSError:
         pass
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
 
     torch.backends.cudnn.benchmark = True
     #torch.backends.cudnn.deterministic = True
     torch.cuda.empty_cache()
 
+    collate_fn = None
+    if opt.model != 'PointNet++':
+        collate_fn = sparse_tensor_collation_fn
+
     data_train = NTU_RGBD(root_path = opt.root_path,opt=opt,
-        DATA_CROSS_VIEW = True,
+        DATA_CROSS_VIEW = not opt.cross_subject,
         full_train = True,
         validation = False,
         test = False,
         Transform = False
         )
-    train_loader = DataLoader(dataset = data_train, batch_size = opt.batchSize, shuffle = True, drop_last = True,num_workers = 8)
+    train_loader = DataLoader(
+        dataset=data_train,
+        batch_size=opt.batchSize,
+        shuffle=True,
+        drop_last=True,
+        num_workers=8,
+        collate_fn=collate_fn
+    )
     data_val = NTU_RGBD(root_path = opt.root_path, opt=opt,
-        DATA_CROSS_VIEW = True,
+        DATA_CROSS_VIEW = not opt.cross_subject,
         full_train = False,
         validation = False,
         test = True,
         Transform = False
         )
-    val_loader = DataLoader(dataset = data_val, batch_size = 24,num_workers = 8)
+    val_loader = DataLoader(
+        dataset=data_val,
+        batch_size=24,
+        num_workers=8,
+        collate_fn=collate_fn
+    )
 
-    netR = PointNet_Plus(opt)
+    if opt.model == 'PointNet++':
+        netR = PointNet_Plus(opt)
+    elif opt.model == '3DConv_base':
+        netR = DynamicVoxel3DConvNet(opt)
+    else:
+        raise NotImplementedError
 
     netR = torch.nn.DataParallel(netR).cuda()
     netR.cuda()
@@ -123,11 +151,16 @@ def main(args=None):
             ## 3DV points and 3 temporal segment appearance points
             ## points_xyzc: B*2048*8;points_1xyz:B*2048*3  target: B*1
             points_xyzc,points_1xyz,points2_xyz,points3_xyz,label,v_name = data
-            points_xyzc,points_1xyz,points2_xyz,points3_xyz,label = points_xyzc.cuda(),points_1xyz.cuda(),points2_xyz.cuda(),points3_xyz.cuda(),label.cuda()
+            if opt.model == 'PointNet++':
+                points_xyzc = points_xyzc.cuda()
+            points_1xyz,points2_xyz,points3_xyz,label = points_1xyz.cuda(),points2_xyz.cuda(),points3_xyz.cuda(),label.cuda()
 
             ## group for 3DV points
             opt.ball_radius = opt.ball_radius + random.uniform(-0.02,0.02)
             xt, yt = group_points_3DV(points_xyzc, opt)
+            if opt.verbose is True:
+                print(f"xt: {xt}")
+                print(f"yt: {yt}")
             ## group for appearance points (3 seg)
             xs1, ys1 = group_points(points_1xyz, opt)
             xs2, ys2 = group_points(points2_xyz, opt)
@@ -135,6 +168,8 @@ def main(args=None):
 
             prediction = netR(xt, xs1, xs2, xs3, yt, ys1, ys2, ys3)
 
+            if opt.model != 'PointNet++':
+                prediction = prediction.F  # prediction.feats
             loss = criterion(prediction,label)
             optimizer.zero_grad()
 
@@ -148,6 +183,8 @@ def main(args=None):
 
             acc += (predicted==label).cpu().sum().numpy()
             total1 += label.size(0)
+            if opt.toy == True:
+                sys.exit(-1)
 
 
         acc_avg = acc/total1
@@ -184,7 +221,8 @@ def main(args=None):
                 loss = criterion(prediction,label)
                 _, predicted60 = torch.max(prediction.data[:,0:60], 1)
                 _, predicted = torch.max(prediction.data, 1)
-                #print(prediction.data)
+                if opt.verbose is True:
+                    print(prediction.data)
                 loss_sigma += loss.item()
 
                 for j in range(len(label)):

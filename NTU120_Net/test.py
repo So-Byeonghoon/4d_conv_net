@@ -39,8 +39,11 @@ def main(args=None):
     parser.add_argument('--root_path', type=str, default='/data/data3/wangyancheng/pointcloudData/NTU_voxelz40_feature_2048',  help='preprocess folder')
     parser.add_argument('--depth_path', type=str, default='/data/data3/wangyancheng/ntu120dataset/',  help='raw_depth_png')
     parser.add_argument('--save_root_dir', type=str, default='results_ntu120/NTU60_v40_cv_MultiStream',  help='output folder')
-    parser.add_argument('--model', type=str, default = '',  help='model name for training resume')
+    parser.add_argument('--model', type=str, default = 'PointNet++',  help='model name for training resume: PointNet++ | 3DConv_base')
     parser.add_argument('--optimizer', type=str, default = '',  help='optimizer name for training resume')
+
+    parser.add_argument('--skip-appearance', action='store_true', help='If true, skip appearance stream and use only motion stream')
+    parser.add_argument('--cross-subject', action='store_true', help='If true, cross-subject split for NTU120 data; If flase, cross-view split')
 
     parser.add_argument('--ngpu', type=int, default=1, help='# GPUs')
     parser.add_argument('--main_gpu', type=int, default=0, help='main GPU id') # CUDA_VISIBLE_DEVICES=0 python train.py
@@ -57,6 +60,7 @@ def main(args=None):
     parser.add_argument('--ball_radius', type=float, default=0.16, help='square of radius for ball query in level 1')#0.025 -> 0.05 for detph
     parser.add_argument('--ball_radius2', type=float, default=0.25, help='square of radius for ball query in level 2')# 0.08 -> 0.01 for depth
 
+    parser.add_argument('--voxel_size', type=int, default=35,  help='Voxel size')
 
     opt = parser.parse_args()
     print (opt)
@@ -79,7 +83,7 @@ def main(args=None):
     torch.cuda.empty_cache()
 
     data_val = NTU_RGBD(root_path = opt.root_path, opt=opt,
-        DATA_CROSS_VIEW = True,
+        DATA_CROSS_VIEW = not opt.cross_subject,
         full_train = False,
         validation = False,
         test = True,
@@ -88,11 +92,16 @@ def main(args=None):
     val_loader = DataLoader(dataset = data_val, batch_size = 18,num_workers = 8)
 
     #net =
-
-    netR = PointNet_Plus(opt)
+    if opt.model == 'PointNet++':
+        netR = PointNet_Plus(opt)
+    elif opt.model == '3DConv_base':
+        netR = DynamicVoxel3DConvNet(opt)
+    else:
+        raise NotImplementedError
 
     #netR.load_state_dict(torch.load("/results_ntu120/NTU60_v40_cv_MultiStream/pointnet_para_45.pth"))
     epoch = opt.nepoch - 1
+    print(f"{opt.save_root_dir}/pointnet_para_{epoch}.pth")
     netR.load_state_dict(torch.load(f"{opt.save_root_dir}/pointnet_para_{epoch}.pth"))
 
     netR = torch.nn.DataParallel(netR).cuda()
@@ -128,7 +137,6 @@ def main(args=None):
         prediction = netR(xt, xs1, xs2, xs3, yt, ys1, ys2, ys3)
         forward_time_end = time.time()
 
-        print('forward time:',forward_time_end-forward_time_start)
         _, predicted60 = torch.max(prediction.data[:,0:60], 1)
         _, predicted = torch.max(prediction.data, 1)
         #print(prediction.data)

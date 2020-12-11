@@ -1,8 +1,9 @@
-import torch
 import math
-
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+import MinkowskiEngine as ME
 
 from utils import group_points_2,group_points_2_3DV
 
@@ -14,9 +15,10 @@ vlad_dim_out = 128*8
 
 
 
-class PointNet_Plus(nn.Module):
+class DynamicVoxel3DConvNet(ME.MinkowskiNetwork):
     def __init__(self,opt,num_clusters=8,gost=1,dim=128,normalize_input=True):
-        super(PointNet_Plus, self).__init__()
+        D = 3
+        super(DynamicVoxel3DConvNet, self).__init__(D)
         self.knn_K = opt.knn_K
         self.ball_radius2 = opt.ball_radius2
         self.sample_num_level1 = opt.sample_num_level1
@@ -33,81 +35,100 @@ class PointNet_Plus(nn.Module):
         self.skip_appearance = opt.skip_appearance
         #self._init_params()
 
-        self.dim_out = nstates_plus_3[2]
+        self.dim_out = nstates_plus_3[2]  # 1024
 
         if self.pooling == 'concatenation' and self.skip_appearance is False:
             self.dim_out = self.dim_out*4
         # if self.pooling == 'bilinear':
         #     self.dim_out = 4096
-
-        self.net3DV_1 = nn.Sequential(
-            # B*INPUT_FEATURE_NUM*sample_num_level1*knn_K
-            nn.Conv2d(self.INPUT_FEATURE_NUM, nstates_plus_1[0], kernel_size=(1, 1)),
-            nn.BatchNorm2d(nstates_plus_1[0]),
-            nn.ReLU(inplace=True),
-            # B*64*sample_num_level1*knn_K
-            nn.Conv2d(nstates_plus_1[0], nstates_plus_1[1], kernel_size=(1, 1)),
-            nn.BatchNorm2d(nstates_plus_1[1]),
-            nn.ReLU(inplace=True),
-            # B*64*sample_num_level1*knn_K
-            nn.Conv2d(nstates_plus_1[1], nstates_plus_1[2], kernel_size=(1, 1)),
-            nn.BatchNorm2d(nstates_plus_1[2]),
-            nn.ReLU(inplace=True),
-            # B*128*sample_num_level1*knn_K
-            nn.MaxPool2d((1,64),stride=1)
-            )
-
-        self.net3DV_2 = nn.Sequential(
-            # B*131*sample_num_level2*knn_K
-            nn.Conv2d(3+nstates_plus_1[2], nstates_plus_2[0], kernel_size=(1, 1)),
-            nn.BatchNorm2d(nstates_plus_2[0]),
-            nn.ReLU(inplace=True),
-            # B*128*sample_num_level2*knn_K
-            nn.Conv2d(nstates_plus_2[0], nstates_plus_2[1], kernel_size=(1, 1)),
-            nn.BatchNorm2d(nstates_plus_2[1]),
-            nn.ReLU(inplace=True),
-            # B*128*sample_num_level2*knn_K
-            nn.Conv2d(nstates_plus_2[1], nstates_plus_2[2], kernel_size=(1, 1)),
-            nn.BatchNorm2d(nstates_plus_2[2]),
-            nn.ReLU(inplace=True),
-            # B*256*sample_num_level2*knn_K
-            nn.MaxPool2d((1,self.knn_K),stride=1)
-            # B*256*sample_num_level2*1
+        self.conv1 = nn.Sequential(
+            ME.MinkowskiConvolution(
+                in_channels=self.INPUT_FEATURE_NUM - 3,
+                out_channels=nstates_plus_1[0],
+                kernel_size=3,
+                dimension=D),
+            ME.MinkowskiBatchNorm(nstates_plus_1[0]),
+            ME.MinkowskiReLU(),
+            ME.MinkowskiConvolution(
+                in_channels=nstates_plus_1[0],
+                out_channels=nstates_plus_1[1],
+                kernel_size=3,
+                dimension=D),
+            ME.MinkowskiBatchNorm(nstates_plus_1[1]),
+            ME.MinkowskiReLU(),
+            ME.MinkowskiConvolution(
+                in_channels=nstates_plus_1[1],
+                out_channels=nstates_plus_1[2],
+                kernel_size=3,
+                dimension=D),
+            ME.MinkowskiBatchNorm(nstates_plus_1[2]),
+            ME.MinkowskiReLU(),
+            ME.MinkowskiMaxPooling(
+                kernel_size=2,
+                stride=2,
+                dimension=D),
         )
-
-        self.net3DV_3 = nn.Sequential(
-            # B*259*sample_num_level2*1
-            nn.Conv2d(3+nstates_plus_2[2], nstates_plus_3[0], kernel_size=(1, 1)),
-            nn.BatchNorm2d(nstates_plus_3[0]),
-            nn.ReLU(inplace=True),
-            # B*256*sample_num_level2*1
-            nn.Conv2d(nstates_plus_3[0], nstates_plus_3[1], kernel_size=(1, 1)),
-            nn.BatchNorm2d(nstates_plus_3[1]),
-            nn.ReLU(inplace=True),
-            # B*512*sample_num_level2*1
-            nn.Conv2d(nstates_plus_3[1], nstates_plus_3[2], kernel_size=(1, 1)),
-            nn.BatchNorm2d(nstates_plus_3[2]),
-            nn.ReLU(inplace=True),
-            # B*1024*sample_num_level2*1
-            nn.MaxPool2d((self.sample_num_level2,1),stride=1),
-            # B*1024*1*1
+        self.conv2 = nn.Sequential(
+            ME.MinkowskiConvolution(
+                in_channels=nstates_plus_1[2],
+                out_channels=nstates_plus_2[0],
+                kernel_size=3,
+                dimension=D),
+            ME.MinkowskiBatchNorm(nstates_plus_2[0]),
+            ME.MinkowskiReLU(),
+            ME.MinkowskiConvolution(
+                in_channels=nstates_plus_2[0],
+                out_channels=nstates_plus_2[1],
+                kernel_size=3,
+                dimension=D),
+            ME.MinkowskiBatchNorm(nstates_plus_2[1]),
+            ME.MinkowskiReLU(),
+            ME.MinkowskiConvolution(
+                in_channels=nstates_plus_2[1],
+                out_channels=nstates_plus_2[2],
+                kernel_size=3,
+                dimension=D),
+            ME.MinkowskiBatchNorm(nstates_plus_2[2]),
+            ME.MinkowskiReLU(),
+            ME.MinkowskiMaxPooling(
+                kernel_size=2,
+                stride=2,
+                dimension=D),
         )
+        self.conv3 = nn.Sequential(
+            ME.MinkowskiConvolution(
+                in_channels=nstates_plus_2[2],
+                out_channels=nstates_plus_3[0],
+                kernel_size=3,
+                dimension=D),
+            ME.MinkowskiBatchNorm(nstates_plus_3[0]),
+            ME.MinkowskiReLU(),
+            ME.MinkowskiConvolution(
+                in_channels=nstates_plus_3[0],
+                out_channels=nstates_plus_3[1],
+                kernel_size=3,
+                dimension=D),
+            ME.MinkowskiBatchNorm(nstates_plus_3[1]),
+            ME.MinkowskiReLU(),
+            ME.MinkowskiConvolution(
+                in_channels=nstates_plus_3[1],
+                out_channels=nstates_plus_3[2],
+                kernel_size=3,
+                dimension=D),
+            ME.MinkowskiBatchNorm(nstates_plus_3[2]),
+            ME.MinkowskiReLU(),
+        )
+        self.global_pooling = ME.MinkowskiGlobalPooling()
 
-        self.dim_drop1 = nn.Linear(nstates_plus_3[3], 64)
-        self.dim_drop2 = nn.Linear(nstates_plus_3[3], 64)
+        # self.dim_drop1 = nn.Linear(nstates_plus_3[3], 64)
+        # self.dim_drop2 = nn.Linear(nstates_plus_3[3], 64)
         self.netR_FC = nn.Sequential(
-            # B*1024
-            #nn.Linear(nstates_plus_3[2], nstates_plus_3[3]),
-            #nn.BatchNorm1d(nstates_plus_3[3]),
-            #nn.ReLU(inplace=True),
-            # B*1024
-            nn.Linear(self.dim_out, nstates_plus_3[4]),
-            nn.BatchNorm1d(nstates_plus_3[4]),
-            nn.ReLU(inplace=True),
-            # B*512
-            nn.Linear(nstates_plus_3[4], self.num_outputs),
-            # B*num_outputs
+            ME.MinkowskiLinear(self.dim_out, nstates_plus_3[4]),
+            ME.MinkowskiBatchNorm(nstates_plus_3[4]),
+            ME.MinkowskiReLU(),
+            ME.MinkowskiLinear(nstates_plus_3[4], self.num_outputs),
         )
+
 
         self.netR_C1 = nn.Sequential(
             # B*INPUT_FEATURE_NUM*sample_num_level1*knn_K
@@ -169,21 +190,10 @@ class PointNet_Plus(nn.Module):
 
 
         ###----motion stream--------
-        B,d,N,k = xt.shape
-        #xt =xt.view(-1,d,N,k)
-        xt = self.net3DV_1(xt)
-        xt = torch.cat((yt, xt),1).squeeze(-1)
-        # B*(4+128)*sample_num_level1
-        self.ball_radius2 = self.ball_radius2 + torch.randn(1)/120.0
-        inputs_level2, inputs_level2_center = group_points_2_3DV(xt, self.sample_num_level1, self.sample_num_level2, self.knn_K, self.ball_radius2)
-        # # B*131*sample_num_level2*knn_K, B*3*sample_num_level2*1
-        # # B*131*sample_num_level2*knn_K
-        xt = self.net3DV_2(inputs_level2)
-        # # B*256*sample_num_level2*1
-        # print('netR_2:',x1.shape,x1[0,:,4])
-        xt = torch.cat((inputs_level2_center, xt),1)
-        # # B*259*sample_num_level2*1
-        xt = self.net3DV_3(xt).squeeze(-1).squeeze(-1)
+        xt = self.conv1(xt)  # (3DConv 3x3x3, 1,  64), (3DConv 3x3x3, 1,  64), (3DConv 3x3x3, 1, 128), (MaxPool 2x2)
+        xt = self.conv2(xt)  # (3DConv 3x3x3, 1, 128), (3DConv 3x3x3, 1, 128), (3DConv 3x3x3, 1, 256), (MaxPool 2x2)
+        xt = self.conv3(xt)  # (3DConv 3x3x3, 1, 256), (3DConv 3x3x3, 1, 512), (3DConv 3x3x3, 1, 1024)
+        xt = self.global_pooling(xt)
 
 
         ###----apearance streams--------
@@ -200,6 +210,8 @@ class PointNet_Plus(nn.Module):
         ys = ys.view(-1,d,N,1)
         xs = torch.cat((ys, xs),1).squeeze(-1)
         # B*(3+128)*sample_num_level1
+        self.ball_radius2 = self.ball_radius2 + torch.randn(1)/120.0
+
         inputs_level2_r, inputs_level2_center_r = group_points_2(xs, self.sample_num_level1, self.sample_num_level2, self.knn_K, self.ball_radius2)
         xs = self.netR_C2(inputs_level2_r)
         xs = torch.cat((inputs_level2_center_r, xs),1)
@@ -210,7 +222,6 @@ class PointNet_Plus(nn.Module):
             x = xt
         else:
             x = torch.cat((xt,xs),-1)
-
 
         #print(x.shape)
         # if self.pooling == 'bilinear':

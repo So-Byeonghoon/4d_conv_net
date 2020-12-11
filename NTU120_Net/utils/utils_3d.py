@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+
 import pdb
+import MinkowskiEngine as ME
 
 def group_points(points, opt):
     # group points using knn and ball query
@@ -41,6 +43,9 @@ def group_points(points, opt):
     return inputs_level1, inputs_level1_center
     #inputs_level1: B*INPUT_FEATURE_NUM*sample_num_level1*knn_K, inputs_level1_center: B*3*sample_num_level1*1
 def group_points_3DV(points, opt):
+    if opt.model != 'PointNet++':
+        return transform_sparse_3DV(points, opt)
+
     # group points using knn and ball query
     # points: B * SAMPLE_NUM * 4
     cur_train_size = points.shape[0]
@@ -80,6 +85,24 @@ def group_points_3DV(points, opt):
 
     return inputs_level1, inputs_level1_center
     #inputs_level1: B*INPUT_FEATURE_NUM*sample_num_level1*knn_K, inputs_level1_center: B*3*sample_num_level1*1   
+
+
+def transform_sparse_3DV(points, opt):
+    # voxels: B * positive_voxel_num * 8
+    #cur_train_size = points.shape[0]
+    #opt.INPUT_FEATURE_NUM = points.shape[-1]
+
+    #feats = points[:, :, 3:]
+    #coords = points[:, :, 0:3]
+
+    #feats = feats.type(torch.FloatTensor)
+    #coords = coords.type(IntTensor)
+    coords, feats = points
+    feats = feats.cuda()
+
+    input_tensor = ME.SparseTensor(feats=feats, coords=coords)
+    return input_tensor, None
+
 def group_points_2(points, sample_num_level1, sample_num_level2, knn_K, ball_radius):
     # group points using knn and ball query
     # points: B*(3+128)*512
